@@ -1,3 +1,6 @@
+from tty import IFLAG
+
+
 class raftNode:
     def __init__(self,node_id):
 
@@ -55,6 +58,45 @@ class raftNode:
         """
 
     def append_entries(self,term,leader_id,prev_log_index,prev_log_term,entries,leader_commit):
+        #authenticate leader
+        if  term < self.current_term :
+            return self.current_term,False
+        elif term >= self.current_term:
+            self.state="Follower"
+            self.current_term=term
+
+
+        #Check Log Consistency
+        if prev_log_index > len(self.log)-1:
+            return self.current_term,False #means you are lagging behind
+
+       #checking term consistency
+        if prev_log_index != -1:
+            existing_term= self.log[prev_log_index].term
+            if existing_term !=prev_log_term:
+                return self.current_term,False
+
+        #----------------APPEND LOGIC-----------------
+        insert_index=prev_log_index+1
+
+        for entry in entries:
+            if len(self.log)<insert_index:#there exists nothing at the current index to be appended
+                self.log.append(entry)
+            elif len(self.log)>=insert_index:#there exists entry at and beyond the current index to be appended
+                if self.log[insert_index].term != entry.term:
+                    self.log = self.log[:insert_index]  # truncate the log to delete all the wrong entries to the log
+                    self.log.append(entry)
+            insert_index+=1
+
+        #-----------------------UPDATE COMMIT INDEX----------------------
+        if leader_commit > self.commit_index:
+            last_new_index= len(self.log)-1
+            self.commit_index= min(leader_commit,last_new_index)
+
+        return self.current_term,True
+
+
+
         """
         Invoked by leaders to append entries or send heartbeat signals
 
@@ -67,4 +109,3 @@ class raftNode:
         :param leader_commit: Leaders' commit index
         :return:
         """
-        pass
