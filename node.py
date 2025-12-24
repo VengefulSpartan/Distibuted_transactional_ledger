@@ -185,7 +185,7 @@ class raftNode:
                     print(f"Candidate {self.node_id} has got majority of the votes and is Now the LEADER for the term {self.current_term}")
                     self.state="Leader"
                     import threading
-                    t=threading.Thread(target=self.start_hearbeat,daemon=True)
+                    t=threading.Thread(target=self.start_heartbeat,daemon=True)
                     t.start()
 
 
@@ -210,16 +210,22 @@ class raftNode:
 
             time.sleep(0.1)#sleeping a little to save CPU power
 
-    def start_hearbeat(self):
-        print(f"node {self.node_id} is the LEADER! starting hearbeat ...")
+    def start_heartbeat(self):
+        print(f"node {self.node_id} is the LEADER! starting heartbeat ...")
         while self.state == "Leader":
             #heartbeat message
+            if len(self.log)>0:
+                prev_log_index=len(self.log)-1
+                prev_log_term=self.log[-1].term
+            else:
+                prev_log_index=-1
+                prev_log_term=0
             message={
-                "type":"HEARBEAT",
+                "type":"APPEND_ENTRIES",
                 "term":self.current_term,
                 "leader_id":self.node_id,
-                "prev_log_index":len(self.log)-1,
-                "prev_log_term":self.log[-1].term,
+                "prev_log_index":prev_log_index,
+                "prev_log_term":prev_log_term,
                 "entries":[],
                 "leader_commit":self.commit_index
             }
