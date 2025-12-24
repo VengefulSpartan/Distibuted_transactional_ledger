@@ -1,4 +1,6 @@
-from tty import IFLAG
+import time
+import random
+import math
 
 class LogEntry:
     def __init__(self,term,command):
@@ -19,6 +21,14 @@ class raftNode:
         # Volatile state
         self.commit_index= 0 #the index number in log(append state) till which it is safe to commit
         self.last_applied= 0 #keeps track of the last log you executed
+
+        #random timeout to avoid split votes
+        self.election_timeout=random.uniform(2.0,4.0)
+        #timestamp of last time we heard from the current leader
+        self.last_heartbeat=time.time()
+        #knowing the neighboring nodes
+        self.peers=[]
+        self.votes_received=0
 
     #--------RPC (remote procedure calls) Endpoints-----
     def request_vote(self,term,last_log_index,candidate_id,last_log_term):
@@ -69,6 +79,8 @@ class raftNode:
         elif term >= self.current_term:
             self.state="Follower"
             self.current_term=term
+            #reseting the heartbeat time
+            self.last_heartbeat=time.time()
 
 
         #Check Log Consistency
@@ -118,7 +130,7 @@ class raftNode:
     def set_transport(self,transport):
         self.transport=transport
     def handle_message(self,message,sender_address):
-        msg_type=message.get("type")
+        msg_type=message.get("type").upper()
         if msg_type=="REQUEST_VOTE":
             term=message.get("term")
             candidate_id=message.get("candidate_id")
@@ -155,4 +167,91 @@ class raftNode:
                 "append_result":append
             }
             self.transport.send_message(sender_address,response)
+        elif msg_type=="REQUEST_VOTE_REPLY":
+            term=message.get("term")
+            vote_granted=message.get("vote_granted")
+            #check if we are outdated
+            if term>self.current_term:
+                self.current_term=term
+                self.state="Follower"
+                self.voted_for=None
+                return
+            if self.state == "Candidate" and term==self.current_term and vote_granted :
+                self.votes_received+=1
+                print(f"Candidate {self.node_id} received Total {self.votes_received} number of votes")
+                #majority check
+                majority=(len(self.peers)+1)//2 +1
+                if self.votes_received>= majority:
+                    print(f"Candidate {self.node_id} has got majority of the votes and is Now the LEADER for the term {self.current_term}")
+                    self.state="Leader"
+                    import threading
+                    t=threading.Thread(target=self.start_hearbeat,daemon=True)
+                    t.start()
 
+
+
+
+    def run_election_timer(self):
+        print(f"node {self.node_id}starting election timer...")
+        while True:
+            current_time = time.time()
+            last_heartbeat = self.last_heartbeat
+            time_elapsed = current_time - last_heartbeat
+
+            if self.state == "Leader":
+                pass
+            elif self.state != "Leader" and time_elapsed>self.election_timeout:
+                #panic & start election
+                print(f"node {self.node_id} is starting an election !")
+                self.start_election()
+                #reset timer
+                self.last_heartbeat=time.time()
+                self.election_timeout=random.uniform(2.0,4.0)
+
+            time.sleep(0.1)#sleeping a little to save CPU power
+
+    def start_hearbeat(self):
+        print(f"node {self.node_id} is the LEADER! starting hearbeat ...")
+        while self.state == "Leader":
+            #heartbeat message
+            message={
+                "type":"HEARBEAT",
+                "term":self.current_term,
+                "leader_id":self.node_id,
+                "prev_log_index":len(self.log)-1,
+                "prev_log_term":self.log[-1].term,
+                "entries":[],
+                "leader_commit":self.commit_index
+            }
+            for peer in self.peers:
+                self.transport.send_message(peer,message)
+            time.sleep(0.5)
+    def start_election(self):
+        self.state="Candidate"
+        self.current_term+=1
+        self.voted_for=self.node_id
+        self.votes_received=1
+        self.last_heartbeat=time.time()
+        self.election_timeout=random.uniform(2.0,4.0)
+
+        #gather last log info
+        if len(self.log)>0:
+            last_log_index=len(self.log)-1
+            last_log_term=self.log[-1].term
+        else:
+            last_log_index=-1
+            last_log_term=0
+
+        #creating the message
+        message={
+            "type":"REQUEST_VOTE",
+            "term":self.current_term,
+            "candidate_id":self.node_id,
+            "last_log_index":last_log_index,
+            "last_log_term":last_log_term,
+        }
+        #broadcast it all peers
+        print(f"node {self.node_id} sending vote request to all {len(self.peers)}peers...")
+
+        for peer in self.peers:
+            self.transport.send_message(peer,message)
