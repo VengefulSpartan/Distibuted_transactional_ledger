@@ -1,5 +1,9 @@
 from tty import IFLAG
 
+class LogEntry:
+    def __init__(self,term,command):
+        self.term=term
+        self.command=command
 
 class raftNode:
     def __init__(self,node_id):
@@ -7,6 +11,7 @@ class raftNode:
         #node identity
         self.node_id= node_id
         self.state = "Follower"
+        self.transport=None
         #Persistent state
         self.current_term= 0
         self.voted_for= None
@@ -80,11 +85,12 @@ class raftNode:
         insert_index=prev_log_index+1
 
         for entry in entries:
-            if len(self.log)<insert_index:#there exists nothing at the current index to be appended
-                self.log.append(entry)
-            elif len(self.log)>=insert_index:#there exists entry at and beyond the current index to be appended
+
+            if len(self.log)>insert_index:#there exists entry at and beyond the current index to be appended
                 if self.log[insert_index].term != entry.term:
                     self.log = self.log[:insert_index]  # truncate the log to delete all the wrong entries to the log
+                    self.log.append(entry)
+            else:
                     self.log.append(entry)
             insert_index+=1
 
@@ -109,3 +115,44 @@ class raftNode:
         :param leader_commit: Leaders' commit index
         :return:
         """
+    def set_transport(self,transport):
+        self.transport=transport
+    def handle_message(self,message,sender_address):
+        msg_type=message.get("type")
+        if msg_type=="REQUEST_VOTE":
+            term=message.get("term")
+            candidate_id=message.get("candidate_id")
+            last_log_index=message.get("last_log_index")
+            last_log_term=message.get("last_log_term")
+            term_out,vote= self.request_vote(term,last_log_index,candidate_id,last_log_term)
+            response={
+                "type":"REQUEST_VOTE_REPLY",
+                "term":term_out,
+                "vote_granted":vote,
+            }
+            self.transport.send_message(sender_address,response)
+        elif msg_type=="APPEND_ENTRIES":
+            #term,leader_id,prev_log_index,prev_log_term,entries,leader_commit
+            term=message.get("term")
+            leader_id=message.get("leader_id")
+            prev_log_index=message.get("prev_log_index")
+            prev_log_term=message.get("prev_log_term")
+            entries=message.get("entries")
+            leader_commit=message.get("leader_commit")
+
+            #converting the entries dictionary
+
+            converted_entries=[]
+            for entry in entries:
+                entry_term=entry["term"]
+                command=entry["command"]
+                entry_object=LogEntry(entry_term,command)
+                converted_entries.append(entry_object)
+            term_out,append=self.append_entries(term,leader_id,prev_log_index,prev_log_term,converted_entries,leader_commit)
+            response={
+                "type":"APPEND_ENTRIES_REPLY",
+                "term":term_out,
+                "append_result":append
+            }
+            self.transport.send_message(sender_address,response)
+
