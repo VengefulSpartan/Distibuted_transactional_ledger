@@ -1,0 +1,5 @@
+{"type": "VOTE", "data": {"term": 1, "voted_for": null}}
+{"type": "VOTE", "data": {"term": 1, "voted_for": 1}}
+{"type": "VOTE", "data": {"term": 2, "voted_for": 2}}
+{"type": "VOTE", "data": {"term": 3, "voted_for": null}}
+{"type": "VOTE", "data": {"term": 3, "voted_for": 4}}

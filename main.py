@@ -16,7 +16,8 @@ def start_node(node_id):
     registry = {
         1: 5001,
         2: 5002,
-        3: 5003
+        3: 5003,
+        4: 5004
     }
 
     if node_id not in registry:

@@ -1,6 +1,19 @@
 import time
 import random
 import math
+import json
+import os
+
+from datetime import datetime
+def getGreeting():
+    now=datetime.now().strftime("%H")
+    now=int(now)
+    if(12>now):
+        return "Morning!"
+    elif(12<now<4):
+        return "Afternoon!"
+    else:
+        return "Evening"
 
 class LogEntry:
     def __init__(self,term,command):
@@ -10,14 +23,23 @@ class LogEntry:
 class raftNode:
     def __init__(self,node_id):
 
+        #greeting
+        self.greeting= getGreeting()
+
         #node identity
         self.node_id= node_id
         self.state = "Follower"
         self.transport=None
+        self.wal_filepath=f"node_{self.node_id}_wal.txt"
         #Persistent state
         self.current_term= 0
         self.voted_for= None
         self.log=[]
+
+        #recover frozen data
+        self.recover_from_wal() 
+
+
         # Volatile state
         self.commit_index= 0 #the index number in log(append state) till which it is safe to commit
         self.last_applied= 0 #keeps track of the last log you executed
@@ -37,6 +59,7 @@ class raftNode:
             self.current_term=term
             self.voted_for=None
             self.state="Follower"
+            self.write_to_wal("VOTE", {"term": self.current_term, "voted_for": self.voted_for})
         elif term < self.current_term:
             return self.current_term,False
 
@@ -58,6 +81,7 @@ class raftNode:
         if (self.voted_for is None or self.voted_for==candidate_id) and log_is_ok :
             self.voted_for = candidate_id
             self.state="Follower"
+            self.write_to_wal("VOTE", {"term": self.current_term, "voted_for": self.voted_for})
             return self.current_term,True
         #default reject
         return self.current_term,False
@@ -102,8 +126,10 @@ class raftNode:
                 if self.log[insert_index].term != entry.term:
                     self.log = self.log[:insert_index]  # truncate the log to delete all the wrong entries to the log
                     self.log.append(entry)
+                    self.write_to_wal("APPEND_LOG", {"term": entry.term, "command": entry.command})
             else:
                     self.log.append(entry)
+                    self.write_to_wal("APPEND_LOG", {"term": entry.term, "command": entry.command})
             insert_index+=1
 
         #-----------------------UPDATE COMMIT INDEX----------------------
@@ -151,7 +177,7 @@ class raftNode:
             prev_log_term=message.get("prev_log_term")
             entries=message.get("entries")
             leader_commit=message.get("leader_commit")
-
+            print(f"Recieved heartbeat from LEADER {sender_address}")
             #converting the entries dictionary
 
             converted_entries=[]
@@ -175,6 +201,7 @@ class raftNode:
                 self.current_term=term
                 self.state="Follower"
                 self.voted_for=None
+                self.write_to_wal("VOTE", {"term": self.current_term, "voted_for": self.voted_for})
                 return
             if self.state == "Candidate" and term==self.current_term and vote_granted :
                 self.votes_received+=1
@@ -192,7 +219,7 @@ class raftNode:
 
 
     def run_election_timer(self):
-        print(f"node {self.node_id}starting election timer...")
+        print(f"node {self.node_id} starting election timer...")
         while True:
             current_time = time.time()
             last_heartbeat = self.last_heartbeat
@@ -237,6 +264,7 @@ class raftNode:
         self.current_term+=1
         self.voted_for=self.node_id
         self.votes_received=1
+        self.write_to_wal("VOTE",{"term":self.current_term,"voted_for":self.voted_for})
         self.last_heartbeat=time.time()
         self.election_timeout=random.uniform(2.0,4.0)
 
@@ -261,3 +289,32 @@ class raftNode:
 
         for peer in self.peers:
             self.transport.send_message(peer,message)
+    
+    def write_to_wal(self,record_type,data):
+        with open(self.wal_filepath,'a',encoding='utf-8') as f:
+            writeData={"type":record_type,"data":data}
+            writeData=json.dumps(writeData)
+            f.write(writeData+"\n")
+            f.flush()
+            os.fsync(f.fileno())
+    def recover_from_wal(self):
+        if(os.path.exists(self.wal_filepath)):
+            print("retrieving data...\n")
+            with open(self.wal_filepath,'r',encoding="utf-8") as f:
+                for line in f:
+                    if not line.strip():continue
+                    readData=json.loads(line)
+                    if(readData['type']=="VOTE"):
+                        self.current_term=readData["data"]["term"]
+                        self.voted_for=readData["data"]["voted_for"]
+                    elif(readData['type']=="APPEND_LOG"):
+                        extracted_term=readData["data"]["term"]
+                        extracted_command=readData["data"]["command"]
+                        entry=LogEntry(extracted_term,extracted_command)
+                        self.log.append(entry)
+            print(f"Successfully restored lost data due to sleep.\n Good {self.greeting}")
+
+                    
+
+        else:
+            print(f"No record Found...\nStarting Fresh\n Good {self.greeting}")
