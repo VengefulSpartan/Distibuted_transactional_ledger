@@ -1,0 +1,46 @@
+version: "3.8"
+
+services:
+  node1:
+    build: .
+    container_name: node1
+    command: ["1"]
+    ports:
+      - "5001:5001"
+    networks:
+      - raft_network
+
+  # ---> YOUR TURN: ADD NODE 2 HERE <---
+  node2:
+      build: .
+      container_name: node2
+      command: ["2"]
+      ports:
+        - "5002:5002"
+      networks:
+        - raft_network
+
+
+  # ---> YOUR TURN: ADD NODE 3 HERE <---
+  node3:
+    build: .
+    container_name: node3
+    command: ["3"]
+    ports:
+      - "5003:5003"
+    networks:
+      - raft_network
+
+  node4:
+    build: .
+    container_name: node4
+    command: ["4"]
+    ports:
+      - "5004:5004"
+    networks:
+      - raft_network
+
+
+networks:
+  raft_network:
+    driver: bridge
