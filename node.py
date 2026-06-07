@@ -238,7 +238,7 @@ class raftNode:
             time.sleep(0.1)#sleeping a little to save CPU power
 
     def start_heartbeat(self):
-        print(f"node {self.node_id} is the LEADER! starting heartbeat ...")
+        print(f"[*] I am the Leader (Term {self.current_term}). Sending heartbeats...")
         while self.state == "Leader":
             #heartbeat message
             if len(self.log)>0:

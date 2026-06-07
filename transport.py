@@ -29,4 +29,12 @@ class Transport:
         #convert the dict to json to bytes
         msg_bytes=json.dumps(message).encode("utf-8")
         #send data
-        self.socket.sendto(msg_bytes,target_address)
+        try:
+            self.socket.sendto(msg_bytes, target_address)
+        except socket.gaierror:
+            # The DNS hasn't registered the node yet, or the node is dead.
+            # We just silently drop the packet. This is normal in UDP!
+            pass
+        except Exception as e:
+            # Catch any other weird network hiccups
+            pass
